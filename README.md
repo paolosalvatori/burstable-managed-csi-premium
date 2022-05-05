@@ -168,6 +168,103 @@ For mounting a volume in a Windows container, specify the drive letter and path.
 ...
 ```
 
+## Run the Demo
+
+You can run the following `deploy.sh` bash script to create the custom storage class, the persistent volume, and the pod that uses the persistent volume claim to create and mount a P30 managed disk as a volume.
+
+```bash
+#!/bin/bash
+
+# Variables
+namespace="burstable-csi"
+persistentVolumeClaimTemplate="pvc.yml"
+persistentVolumeClaimName="burstable-managed-csi-premium"
+storageClassTemplate="sc.yml"
+storageClassName="burstable-managed-csi-premium"
+podTemplate="pod.yml"
+podName="nginx"
+
+# Create the storage class if doesn't already exists in the cluster
+result=$(kubectl get sc -o jsonpath="{.items[?(@.metadata.name=='$storageClassName')].metadata.name}")
+
+if [[ -n $result ]]; then
+    echo "[$storageClassName] storage class already exists in the cluster"
+else
+    echo "[$storageClassName] storage class does not exist in the cluster"
+    echo "creating [$storageClassName] storage class in the cluster..."
+    kubectl apply -f $storageClassTemplate
+fi
+
+# Create the namespace if it doesn't already exists in the cluster
+result=$(kubectl get namespace -o jsonpath="{.items[?(@.metadata.name=='$namespace')].metadata.name}")
+
+if [[ -n $result ]]; then
+    echo "[$namespace] namespace already exists in the cluster"
+else
+    echo "[$namespace] namespace does not exist in the cluster"
+    echo "creating [$namespace] namespace in the cluster..."
+    kubectl create namespace $namespace
+fi
+
+# Check if the persistent volume claim already exists
+result=$(kubectl get pvc -n $namespace -o json | jq -r '.items[].metadata.name | select(. == "'$persistentVolumeClaimName'")')
+
+if [[ -n $result ]]; then
+    echo "[$persistentVolumeClaimName] persistent volume claim already exists"
+    exit
+else
+    # Create the persistent volume claim 
+    echo "[$persistentVolumeClaimName] persistent volume claim does not exist"
+    echo "Creating [$persistentVolumeClaimName] persistent volume claim..."
+    cat $persistentVolumeClaimTemplate | 
+    yq "(.metadata.name)|="\""$persistentVolumeClaimName"\" |
+    yq "(.spec.storageClassName)|="\""$storageClassName"\" |
+    kubectl apply -n $namespace -f -
+fi
+
+# Check if the pod already exists
+result=$(kubectl get pod -n $namespace -o json | jq -r '.items[].metadata.name | select(. == "'$podName'")')
+
+if [[ -n $result ]]; then
+    echo "[$podName] pod already exists"
+    exit
+else
+    # Create the pod 
+    echo "[$podName] pod does not exist"
+    echo "Creating [$podName] pod..."
+    cat $podTemplate | 
+    yq "(.metadata.name)|="\""$podName"\" |
+    yq "(.spec.volumes[0].persistentVolumeClaim.claimName)|="\""$persistentVolumeClaimName"\" |
+    kubectl apply -n $namespace -f -
+fi
+```
+
+## Azure Portal
+
+Use the Azure portal to check the newly created pod:
+
+![Persistent Volume Claim](media/azure-portal-pod.png)
+
+Click the Volumes tab and then the persistent volume claim link to see the persistent volume claim.
+
+![Persistent Volume Claim](media/azure-portal-pvc.png)
+
+Now open the managed disk resource under the node resource group of your AKS cluster:
+
+![Persistent Volume Claim](media/azure-portal-disk.png)
+
+In the overview page, you can observe:
+
+1) Disk size: is 1024 GiB == 1 TiB
+2) Disk sku: Premium SSD LRS
+3) Performance Tier: P30 – 5000 IOPS, 200 MBps
+
+As shown at [Premium SSD managed disks: Per-disk limits](https://docs.microsoft.com/en-us/azure/virtual-machines/disks-scalability-targets#premium-ssd-managed-disks-per-disk-limits), a P30 managed disk can burst up to 30,000 IOPS and 1,000 MB/sec. Now, if you click Configuration under Settings , you can see that on-demand bursting is enabled.
+
+![Persistent Volume Claim](media/azure-portal-bursting.png)
+
+Premium SSDs using the on-demand bursting model are charged an hourly burst enablement flat fee and transaction costs apply to any burst transactions beyond the provisioned target. For more information about the cost model and some examples, see [billing](https://docs.microsoft.com/en-us/azure/virtual-machines/disk-bursting#billing).
+
 ## Next Steps
 
 You can create custom storage classes and enable additional features in your persistent volumes. For example, you can use the [diskEncryptionSetID](https://github.com/kubernetes-sigs/azuredisk-csi-driver/blob/master/docs/driver-parameters.md) parameter to specify the resource id of the disk encryption set to use for enabling [server-side encryption of Azure managed disks](https://docs.microsoft.com/en-us/azure/virtual-machines/disk-encryption). For more information, see [Bring your own keys (BYOK) with Azure disks in Azure Kubernetes Service (AKS)](https://docs.microsoft.com/en-us/azure/aks/azure-disk-customer-managed-keys).
