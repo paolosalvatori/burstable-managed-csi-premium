@@ -97,8 +97,7 @@ volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
 ```
 
-> [!NOTE]
-> AKS reconciles the default storage classes and will overwrite any changes you make to those storage classes.
+> **Important**: AKS reconciles the default storage classes and will overwrite any changes you make to those storage classes.
 
 ## Persistent Volume Claims
 
